@@ -3,7 +3,7 @@
  * pressure in the tubes connected to the fingertips.
  * 
  * Author: Philippe Nadeau <philippe.nadeau.3@ens.etsmtl.ca>
- * Date of last update :  June 10th 2019
+ * Date of last update :  June 21th 2019
  */
 
 //If this is set to true, then a PI position controller will be used and the command
@@ -45,8 +45,8 @@ int samplingPeriod = 10; //10mS = 0.01 second
 
 //This variable is incremented/decremented for each encoder count
 //depending on the direction of the motor.
-volatile int finger1positionCounts = 0;
-volatile int finger2positionCounts = 0;
+volatile unsigned int finger1positionCounts = 0;
+volatile unsigned int finger2positionCounts = 0;
 
 //Time at which the control loop was started
 unsigned long previousTime          = 0;
@@ -71,7 +71,8 @@ bool motor2Forward = true;
 //since the speed command was executed.
 unsigned long speedCommandTimestamp  = 0;
 //Amplitude of the PWM use for speed control
-const int speedCommandAmplitude     = 50;
+const int motor1SpeedCommandAmplitude = 127;
+const int motor2SpeedCommandAmplitude = 137;
 
 //Quick helper to decompose a 16 bits integer into its MSB and LSB
 //and transmit those on Serial. That way, the receiver always get
@@ -101,7 +102,9 @@ int encoderChannelBTrigger(int channelA_pin, int channelB_pin, int homing_pin, i
       counter++;
     //If channel A is not yet HIGH, it means we're moving backward
     if(digitalRead(channelA_pin) == HIGH)
-      counter--;
+      //If the counter goes under zero, it will wrap around the unsigned integer.
+      if(counter > 0 )
+        counter--;
   }
   
   //If channel B is LOW, it means a falling edge triggered the interrupt
@@ -111,11 +114,13 @@ int encoderChannelBTrigger(int channelA_pin, int channelB_pin, int homing_pin, i
       counter++;
     //If channel A is not yet LOW, it means we're moving backward
     if(digitalRead(channelA_pin) == LOW)
-      counter--;
+      //If the counter goes under zero, it will wrap around the unsigned integer.
+      if(counter > 0 )
+        counter--;
   }
 
-  //If the homing switch is HIGH, it means we are home.
-  if(analogRead(homing_pin) > 512)
+  //When using the PI controller, if the homing switch is HIGH, it means we are home.
+  if(PI_CONTROLLER_USED == true && analogRead(homing_pin) > 512)
       counter = 0;
 
   return counter;
@@ -295,9 +300,9 @@ void executeControlStep(){
       motor1Command = 0;
     }else{
       if(motor1Forward){
-        setPWMMotor1(speedCommandAmplitude);
+        setPWMMotor1(motor1SpeedCommandAmplitude);
       }else{
-        setPWMMotor1(-1*speedCommandAmplitude);
+        setPWMMotor1(-1*motor1SpeedCommandAmplitude);
       }
     }
 
@@ -306,9 +311,9 @@ void executeControlStep(){
       motor2Command = 0;
     }else{
       if(motor2Forward){
-        setPWMMotor2(speedCommandAmplitude);
+        setPWMMotor2(motor2SpeedCommandAmplitude);
       }else{
-        setPWMMotor2(-1*speedCommandAmplitude);
+        setPWMMotor2(-1*motor2SpeedCommandAmplitude);
       }
     }
     
@@ -332,8 +337,8 @@ void executeControlStep(){
  * and therefore, the middleground is 512.
  */
 void executeHomingSequence(){
-  setPWMMotor1(-1*speedCommandAmplitude);
-  setPWMMotor2(-1*speedCommandAmplitude);
+  setPWMMotor1(-1*motor1SpeedCommandAmplitude);
+  setPWMMotor2(-1*motor2SpeedCommandAmplitude);
   while(analogRead(FINGER1_HOMING) < 512 || analogRead(FINGER2_HOMING) < 512){
     if(analogRead(FINGER1_HOMING) > 512)
       setPWMMotor1(0);
@@ -451,6 +456,7 @@ void loop() {
     sendInteger(finger2positionCounts);
     Serial.write(',');
     transmitPressureReadings();
+    
     previousTime = millis();
   }
 
